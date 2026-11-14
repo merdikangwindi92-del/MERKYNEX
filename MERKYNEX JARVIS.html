@@ -1,0 +1,109 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MERKYNEX JARVIS</title>
+<style>
+:root{--bg:#02050c;--panel:#07142a;--line:#12407a;--cy:#22e4ff;--bl:#1e6bff;--tx:#dff6ff;--mut:#7fa6c9;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#02050c}}
+:root:not([data-theme="light"]){--bg:#02050c}:root[data-theme="dark"]{--bg:#02050c}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:radial-gradient(circle at 50% 15%,#06204a,var(--bg) 70%);color:var(--tx);font:16px/1.5 "Rajdhani","Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100%}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+h1{margin:0;font-size:1.15rem;letter-spacing:.1em;font-weight:700}h1 b{color:var(--cy)}
+#st{font-size:.85rem;color:var(--cy);display:flex;gap:6px;align-items:center}#st i{width:8px;height:8px;border-radius:50%;background:#2dff8a;box-shadow:0 0 8px #2dff8a}
+canvas{width:100%;height:170px;display:block;flex:none}
+#tag{text-align:center;color:var(--mut);margin:0;font-size:.9rem}
+#log{flex:1;overflow:auto;padding:10px 16px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.m{max-width:88%;padding:9px 13px;border-radius:14px;border:1px solid var(--line);background:var(--panel);white-space:pre-wrap;overflow-wrap:anywhere}
+.u{align-self:flex-end;border-color:var(--bl)}.j{align-self:flex-start;border-color:var(--cy)}.t{align-self:flex-start;color:var(--mut);font-size:.85rem;border-style:dashed}
+.ask{display:flex;gap:8px;margin-top:8px}
+#chips{display:flex;gap:6px;overflow-x:auto;padding:0 16px 6px;flex:none}
+#chips button{white-space:nowrap;background:transparent;border:1px solid var(--line);color:var(--mut);font-size:.85rem;padding:6px 12px;border-radius:99px;min-height:34px}
+form{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line);flex:none}
+input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:12px;font-size:16px}
+button{background:var(--bl);color:#fff;border:0;border-radius:10px;padding:0 14px;font-size:16px;min-height:44px;cursor:pointer}
+button.alt{background:var(--panel);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--cy)}
+#mic.on{background:#e5384f}
+</style></head><body>
+<header><h1>MERKYNEX <b>JARVIS</b></h1><span id="st"><i></i><span id="stt">En ligne</span></span></header>
+<canvas id="core" width="800" height="340" role="img" aria-label="Cœur holographique de JARVIS"></canvas>
+<p id="tag">Beyond Intelligence. Beyond Imagination.</p>
+<div id="log" aria-live="polite"></div>
+<div id="chips"></div>
+<form id="f"><input id="q" placeholder="Écrivez à JARVIS ou dites « Hey JARVIS »…" autocomplete="off" aria-label="Message">
+<button type="button" id="mic" class="alt" aria-label="Activer le mode vocal">🎤</button><button id="go">Envoyer</button></form>
+<script>
+const $=id=>document.getElementById(id);
+let sample=null,dict=null,busy=false,speaking=false,listening=false,history=[],ctl=null;
+const SYS="Tu es MERKYNEX JARVIS, assistant IA personnel professionnel, calme et précis, créé par MERKYNEX (Afrique & Monde). Réponds dans la langue de l’utilisateur, en 1 à 4 phrases claires, sauf si on te demande plus. Tu peux appeler des outils (heure, calcul, notes). Explique brièvement ce que tu fais. Pour enregistrer une note, utilise save_note : l’utilisateur doit confirmer. Ne prétends jamais avoir accès à Internet, aux fichiers de l’utilisateur ou à des appareils : tu ne les as pas dans cette version.";
+
+function add(c,t){const d=document.createElement("div");d.className="m "+c;d.textContent=t;$("log").append(d);$("log").scrollTop=1e9;return d}
+const notes=()=>{try{return JSON.parse(localStorage.getItem("jv_notes")||"[]")}catch(e){return[]}};
+const putNotes=n=>{try{localStorage.setItem("jv_notes",JSON.stringify(n));return true}catch(e){return false}};
+
+function confirmUI(text){return new Promise(res=>{const d=add("t",text);const r=document.createElement("div");r.className="ask";
+for(const [l,v,c] of [["Confirmer",true,""],["Refuser",false,"alt"]]){const b=document.createElement("button");b.textContent=l;b.className=c;b.onclick=()=>{r.remove();res(v)};r.append(b)}d.append(r)})}
+
+const tools=[
+ {name:"get_time",description:"Date et heure actuelles de l’utilisateur",execute:async()=>({iso:new Date().toISOString(),local:new Date().toLocaleString("fr-FR"),tz:Intl.DateTimeFormat().resolvedOptions().timeZone})},
+ {name:"calculate",description:"Évalue une expression mathématique (+ - * / ( ) % ** et nombres)",inputSchema:{type:"object",properties:{expression:{type:"string"}},required:["expression"]},
+  execute:async({expression})=>{if(!/^[0-9+\-*/().%\s*]+$/.test(expression))throw new Error("Expression refusée");add("t","⚙ Calcul : "+expression);return{result:Function('"use strict";return ('+expression+')')()}}},
+ {name:"save_note",description:"Enregistrer une note sur cet appareil (demande une confirmation)",inputSchema:{type:"object",properties:{text:{type:"string"}},required:["text"]},
+  execute:async({text})=>{if(!await confirmUI("JARVIS souhaite enregistrer cette note : « "+text+" »"))return{saved:false,reason:"refusé par l’utilisateur"};const n=notes();n.push({text,ts:Date.now()});return{saved:putNotes(n)}}},
+ {name:"list_notes",description:"Lister les notes enregistrées",execute:async()=>({notes:notes().map(n=>n.text)})}
+];
+
+function say(t){if(!("speechSynthesis" in window)){afterTurn();return}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);const fr=/[éèàçêùô]|\b(le|la|les|je|vous|est|une?)\b/i.test(t);u.lang=fr?"fr-FR":"en-US";const v=speechSynthesis.getVoices().find(x=>x.lang.toLowerCase().startsWith(fr?"fr":"en"));if(v)u.voice=v;u.rate=.95;u.pitch=.8;let done=false;const end=()=>{if(done)return;done=true;speaking=false;afterTurn()};u.onstart=()=>{speaking=true;setL(false)};u.onend=u.onerror=end;speechSynthesis.speak(u);setTimeout(()=>{if(!speaking&&!done&&!speechSynthesis.speaking)end()},2000)}
+
+async function ask(text){
+  if(busy||!text)return;add("u",text);if(!sample){add("j","Le moteur IA n’est pas disponible dans cette vue. Ouvrez l’artifact dans claude.ai.");return}
+  busy=true;setL(false);$("go").disabled=true;const w=add("j","…");history.push({role:"user",content:text});ctl=new AbortController();
+  try{
+    const input=SYS+"\n\nConversation :\n"+history.slice(-12).map(m=>(m.role==="user"?"Utilisateur : ":"JARVIS : ")+m.content).join("\n")+"\nJARVIS :";
+    const r=await sample(input,{tools,cache:false,signal:ctl.signal,onText:({text:t})=>{w.textContent=t;$("log").scrollTop=1e9}});
+    w.textContent=r.text;history.push({role:"assistant",content:r.text});say(r.text);
+  }catch(e){w.textContent=e.code==="not_granted"?"Autorisation refusée : JARVIS a besoin de l’accès à Claude pour répondre.":e.code==="rate_limited"?"Trop de requêtes. Réessayez dans un instant.":"Erreur : "+(e.message||"requête échouée");history.pop();setTimeout(afterTurn,300)}
+  busy=false;$("go").disabled=false;
+}
+
+$("f").onsubmit=e=>{e.preventDefault();const t=$("q").value.trim();$("q").value="";ask(t)};
+for(const c of ["Quelle heure est-il ?","Calcule 18 % de 2 450","Explique-moi MERKYNEX","Note : appeler l’équipe demain","Mes notes"]){const b=document.createElement("button");b.textContent=c;b.onclick=()=>ask(c);$("chips").append(b)}
+$("chips").dataset.voice="1";
+
+// Voix : mode mains libres (écoute → réponse parlée → écoute) + « Hey JARVIS »
+let voiceMode=false,rec=null,retries=0;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const wake=t=>{const m=t.match(/^(hey|hé|ok|salut|hello)[ ,]*jarvis[ ,.:!]*(.*)$/i);return m?(m[2]||"Je vous écoute."):t};
+function heard(t){t=t.trim();$("q").value="";if(!t||busy||speaking)return;retries=0;ask(wake(t))}
+function setL(v){if(v!==undefined)listening=v;$("mic").classList.toggle("on",voiceMode);$("stt").textContent=voiceMode?(listening?"Écoute…":busy?"Réflexion…":speaking?"Parle…":"Mode vocal"):"En ligne"}
+function voiceOff(msg){voiceMode=false;listening=false;try{dict&&dict.stop()}catch(e){}try{rec&&rec.stop()}catch(e){}try{speechSynthesis.cancel()}catch(e){}speaking=false;if(msg)add("t",msg);setL(false)}
+function afterTurn(){setL(false);if(voiceMode)setTimeout(listen,300)}
+async function startDict(){if(!dict)return false;try{await dict.start();return true}catch(e){if(e&&e.code==="not_granted"){voiceOff("Micro refusé. Autorisez-le dans les permissions de la page, puis réessayez.");return"stop"}return false}}
+function startSR(){if(!SR)return false;try{rec=new SR();rec.lang=(navigator.language||"fr-FR");rec.interimResults=true;rec.continuous=false;
+ rec.onstart=()=>setL(true);
+ rec.onresult=e=>{let f="",p="";for(const r of e.results){if(r.isFinal)f+=r[0].transcript;else p+=r[0].transcript}if(f)heard(f);else $("q").value=p};
+ rec.onerror=e=>{if(e.error==="not-allowed"||e.error==="service-not-allowed")voiceOff("Accès au micro refusé. Autorisez le micro pour ce site, ou écrivez au clavier.")};
+ rec.onend=()=>{setL(false);if(voiceMode)setTimeout(listen,400)};rec.start();return true}catch(e){return false}}
+async function listen(){if(!voiceMode||busy||speaking||listening)return;
+ const d=await startDict();if(d==="stop"||d)return;
+ if(startSR())return;
+ if(++retries<3)setTimeout(listen,800);else voiceOff("La reconnaissance vocale n’est pas disponible ici. Essayez Chrome ou Edge, ou écrivez au clavier.")}
+$("mic").onclick=()=>{if(voiceMode){voiceOff();return}voiceMode=true;retries=0;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}catch(e){}setL(false);add("t","Mode vocal activé. Parlez, JARVIS répondra à voix haute. Touchez 🎤 pour l’arrêter.");listen()};
+function wire(){dict.onPartial(({text})=>{$("q").value=text});dict.onFinal(({text})=>heard(text));
+ dict.onState(({state})=>{setL(state==="listening");if(state!=="listening"&&voiceMode&&!busy&&!speaking)setTimeout(listen,500)})}
+
+// Noyau holographique
+const cv=$("core"),x=cv.getContext("2d");
+function draw(t){const W=cv.width,H=cv.height,cx=W/2,cy=H/2,a=(speaking||listening||busy)?1:.25;x.clearRect(0,0,W,H);
+ for(let i=0;i<5;i++){x.strokeStyle=`rgba(34,228,255,${.75-i*.13})`;x.lineWidth=2;x.beginPath();x.ellipse(cx,cy,70+i*26,(70+i*26)*(.42+.1*Math.sin(t/900+i)),t/2200*(i%2?1:-1),0,7);x.stroke()}
+ const g=x.createRadialGradient(cx,cy,2,cx,cy,64);g.addColorStop(0,"#fff");g.addColorStop(.35,"#22e4ff");g.addColorStop(1,"rgba(30,107,255,0)");x.fillStyle=g;x.beginPath();x.arc(cx,cy,46+7*a*Math.sin(t/110),0,7);x.fill();
+ x.strokeStyle="#1e6bff";x.lineWidth=2;x.beginPath();for(let i=0;i<=W;i+=5){const y=cy+Math.sin(i/16+t/140)*34*a*Math.sin(i/W*Math.PI);i?x.lineTo(i,y):x.moveTo(i,y)}x.stroke();
+ if(!matchMedia("(prefers-reduced-motion: reduce)").matches)requestAnimationFrame(draw)}
+requestAnimationFrame(draw);
+
+add("j","Bonjour, je suis MERKYNEX JARVIS. Comment puis-je vous aider aujourd’hui ?");
+(async()=>{try{sample=await claude.use("sample")}catch(e){}
+ try{dict=await claude.use("dictation")}catch(e){}
+ if(dict)wire();
+ if(!sample)$("stt").textContent="Moteur IA indisponible"})();
+</script></body></html>
